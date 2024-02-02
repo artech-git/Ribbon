@@ -45,10 +45,6 @@ impl KvStore {
     }
 
     pub async fn set(&mut self, key: String, value: Vec<u8>) -> BResult<()> {
-        
-        // let mut arc_log_file = self.log_file; 
-        // let arc_index = self.index; 
-        
         let serialized = serde_json::to_string(&KeyValue { key: key.clone(), value }).unwrap();
         self.log_file.write_all(&serialized.as_bytes()).await.unwrap();
         self.log_file.flush().await.unwrap();
@@ -68,6 +64,14 @@ impl KvStore {
         Ok(value)
     }
 
+    pub async fn remove(&mut self, key: &str) -> BResult<()> { 
+        let offset = self.index.get(key).ok_or(KvStoreError::KeyNotFound).unwrap();
+        (self.log_file).seek(SeekFrom::Start(*offset)).await.unwrap();
+        
+        self.log_file.write_all("\n".as_bytes()).await.unwrap(); 
+        self.log_file.flush().await.unwrap(); 
+        Ok(())
+    }
     // pub fn compact(&mut self) -> BResult<()> {
     //     // ... (Implementation as described in previous response)
     //     todo!()

@@ -4,6 +4,7 @@ pub enum InputData {
     insert(InsertData),
     remove(RemoveData),
     update(UpdateData),
+    ReadInput(String), 
     Invalid,
     ClearTerm,
     NewLine
@@ -78,9 +79,13 @@ impl std::convert::From<String> for UpdateData {
 
 impl std::convert::From<String> for InputData {
     fn from(val: String) -> Self {
+        //TODO: Fix the escape char sequence, unable to match here.
         if val.contains(r#"\n"#){
             // println!("true value");
             return Self::NewLine; 
+        }
+        if val.contains("read") { 
+            return Self::ReadInput(val);
         }
         if val.contains("insert") {
             return Self::insert(InsertData::from(val));

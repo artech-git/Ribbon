@@ -79,26 +79,34 @@ async fn main() {
                 };
 
                 match data {
+                    InputData::ReadInput(key) => { 
+                        let i = store.get(&key).await.unwrap();
+                        println!("key: {key}, value: {i:?}");
+                    }
                     InputData::insert(field) => {
                         let k = field.key.clone(); 
                         let v = field.value.as_bytes().to_vec();  
                         let _t = store.set(k, v).await; 
+                        println!("Insert succes");
                     }
                     InputData::remove(field) => {
                         let k = field.key.clone(); 
-                        let val = store.get(&k).await; 
-                        println!("{:?}", val); 
+                        let val = store.remove(&k).await.unwrap(); 
+                        println!("Removed key: {k}"); 
                     }
                     InputData::update(field) => {
                         let k = field.key.clone(); 
                         let v = field.updated_value.as_bytes().to_vec();  
-                        let _ = store.set(k, v).await;
+                        let _t = store.set(k, v).await.unwrap();
+                        println!("Updated key: {}", field.key);
                     }
                     _ => {
                         println!("Invalid buffer read");
                         continue;
                     }
                 }
+                std::io::stdout().flush().unwrap();
+
             }
         }
     });
