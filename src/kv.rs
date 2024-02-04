@@ -1,12 +1,9 @@
-
 use serde::{Deserialize, Serialize};
 
-
-
 // #[derive(Clone, Debug)]
-// pub struct KeyValue { 
+// pub struct KeyValue {
 //     inner: Arc<Mutex<InnerValue>>
-// } 
+// }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyValue {

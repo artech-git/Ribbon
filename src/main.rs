@@ -1,11 +1,10 @@
-use std::io::{Write};
+use std::{io::Write, str::from_utf8};
 
-
-use crate::{inputs::InputData};
+use crate::inputs::InputData;
 use anyhow::Error;
 
 use log::KvStore;
-use tokio::sync::watch::{Sender};
+use tokio::sync::watch::{Receiver, Sender};
 
 mod errors;
 mod inputs;
@@ -14,20 +13,16 @@ mod log;
 
 #[inline]
 async fn get_inputs(buf: &mut String) -> Result<(), Error> {
-    let val = std::io::stdin()
+    std::io::stdin()
         .read_line(buf)
         .map(|_v| ())
-        .map_err(|e| e.into());
-    println!("{buf:?}");
-    return val;
+        .map_err(|e| e.into())
 }
 
-pub async fn process_inputs(tx: Sender<InputData>) {
-    let mut buf = "".to_string();
+pub async fn process_terminal_input(tx: Sender<InputData>) {
     println!("< welcome to 🎗 >");
-
     loop {
-        buf = "".to_string();
+        let mut buf = "".to_string();
         print!("Ribbon > ");
         std::io::stdout().flush().unwrap();
         if let Ok(()) = get_inputs(&mut buf).await {
@@ -44,8 +39,8 @@ pub async fn process_inputs(tx: Sender<InputData>) {
                 continue;
             }
 
-            if let InputData::NewLine = data { 
-                continue;  // enter the new line here
+            if let InputData::NewLine = data {
+                continue; // enter the new line here
             }
 
             if let Err(_) = (&tx).send(data) {
@@ -53,64 +48,72 @@ pub async fn process_inputs(tx: Sender<InputData>) {
                 continue;
             }
         }
-        println!("");
+        std::io::stdout().flush().unwrap();
+        // println!("");
+    }
+}
+
+pub async fn process_incoming_inputs(mut store: KvStore, mut rx: Receiver<InputData>) {
+    loop {
+        if let Ok(true) = (rx).has_changed() {
+            let data = {
+                let data = (rx).borrow_and_update();
+                let data = data.clone();
+                data
+            };
+
+            match data {
+                InputData::ReadInput(key) => {
+                    let new_key = key.strip_prefix("read ").unwrap().trim();
+
+                    let i = store.get(new_key).await;
+                    if let Ok(u) = i {
+                        println!(" value: {:?}", from_utf8(&u).unwrap());
+                    }
+                }
+                InputData::insert(field) => {
+                    let k = field.key.clone();
+                    let v = field.value.as_bytes().to_vec();
+                    let _t = store.set(k, v).await;
+                    println!(" Insert succes");
+                }
+                InputData::remove(field) => {
+                    let k = field.key.clone();
+                    let _val = store.remove(&k).await.unwrap();
+                    println!(" Removed key: {k}");
+                }
+                InputData::update(field) => {
+                    let k = field.key.clone();
+                    let v = field.updated_value.as_bytes().to_vec();
+                    let _t = store.set(k, v).await.unwrap();
+                    println!(" Updated key: {}", field.key);
+                }
+                _ => {
+                    println!(" Invalid buffer read");
+                    continue;
+                }
+            }
+            std::io::stdout().flush().unwrap();
+        }
     }
 }
 
 #[tokio::main]
 async fn main() {
-
     // Create message parsers
-    let (tx, mut rx) = tokio::sync::watch::channel(InputData::Invalid);
+    let (tx, rx) = tokio::sync::watch::channel(InputData::Invalid);
 
     let task1 = tokio::task::spawn(async move {
-        process_inputs(tx).await;
+        process_terminal_input(tx).await;
     });
-    
+
     let task2 = tokio::task::spawn(async move {
-        let mut store = KvStore::new("kvstore.log").await.unwrap();
-        loop {
-            if let Ok(true) = (rx).has_changed() {
-                
-                let data = {
-                    let data = (rx).borrow_and_update();
-                    let data = data.clone();
-                    data
-                };
-
-                match data {
-                    InputData::ReadInput(key) => { 
-                        let i = store.get(&key).await.unwrap();
-                        println!("key: {key}, value: {i:?}");
-                    }
-                    InputData::insert(field) => {
-                        let k = field.key.clone(); 
-                        let v = field.value.as_bytes().to_vec();  
-                        let _t = store.set(k, v).await; 
-                        println!("Insert succes");
-                    }
-                    InputData::remove(field) => {
-                        let k = field.key.clone(); 
-                        let val = store.remove(&k).await.unwrap(); 
-                        println!("Removed key: {k}"); 
-                    }
-                    InputData::update(field) => {
-                        let k = field.key.clone(); 
-                        let v = field.updated_value.as_bytes().to_vec();  
-                        let _t = store.set(k, v).await.unwrap();
-                        println!("Updated key: {}", field.key);
-                    }
-                    _ => {
-                        println!("Invalid buffer read");
-                        continue;
-                    }
-                }
-                std::io::stdout().flush().unwrap();
-
-            }
-        }
+        let store = KvStore::new("kvstore.log").await.unwrap();
+        process_incoming_inputs(store, rx).await;
     });
 
     let _ = task2.await;
     let _ = task1.await;
 }
+
+// async fn process_output(mut rx: Receiver<String>, )

@@ -1,5 +1,5 @@
+use failure::Fail;
 use std::io;
-use failure::{Fail};
 
 #[derive(Fail, Debug)]
 pub enum KvStoreError {
@@ -11,7 +11,8 @@ pub enum KvStoreError {
     KeyNotFound,
     #[fail(display = "Invalid command")]
     InvalidCommand,
-    // Add more error variants as needed
+    #[fail(display = "Invalid File Header")]
+    InvalidFileHeader,
 }
 
 pub type BResult<T> = std::result::Result<T, KvStoreError>;

@@ -1,40 +1,32 @@
+use derived_deref::Deref;
 
 #[derive(Clone)]
 pub enum InputData {
     insert(InsertData),
     remove(RemoveData),
     update(UpdateData),
-    ReadInput(String), 
+    ReadInput(String),
     Invalid,
     ClearTerm,
-    NewLine
+    NewLine,
 }
-
-unsafe impl std::marker::Send for InputData { }
-unsafe impl std::marker::Sync for InputData { }
 
 #[derive(Clone)]
 pub struct InsertData {
     pub key: String,
     pub value: String,
 }
-unsafe impl std::marker::Send for InsertData { }
 
-#[derive(Clone)]
+#[derive(Clone, Deref)]
 pub struct RemoveData {
     pub key: String,
 }
 
-unsafe impl std::marker::Send for RemoveData { }
-
-#[derive(Clone)]    
+#[derive(Clone)]
 pub struct UpdateData {
     pub key: String,
     pub updated_value: String,
 }
-
-unsafe impl std::marker::Send for UpdateData { }
-
 
 impl std::convert::From<String> for InsertData {
     fn from(val: String) -> Self {
@@ -79,12 +71,7 @@ impl std::convert::From<String> for UpdateData {
 
 impl std::convert::From<String> for InputData {
     fn from(val: String) -> Self {
-        //TODO: Fix the escape char sequence, unable to match here.
-        if val.contains(r#"\n"#){
-            // println!("true value");
-            return Self::NewLine; 
-        }
-        if val.contains("read") { 
+        if val.contains("read") {
             return Self::ReadInput(val);
         }
         if val.contains("insert") {
@@ -99,7 +86,6 @@ impl std::convert::From<String> for InputData {
         if val.contains("clear") {
             return Self::ClearTerm;
         }
-        
-        return Self::Invalid;
+        return Self::NewLine;
     }
 }
