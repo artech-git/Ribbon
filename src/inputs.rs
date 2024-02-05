@@ -1,4 +1,5 @@
 use derived_deref::Deref;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub enum InputData {
@@ -22,9 +23,10 @@ pub struct RemoveData {
     pub key: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct UpdateData {
     pub key: String,
+    #[serde(rename = "value")]
     pub updated_value: String,
 }
 

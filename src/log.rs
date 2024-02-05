@@ -1,16 +1,15 @@
-
 use std::io::SeekFrom;
 use std::ops::Deref;
 
 use dashmap::DashMap;
 
+use crate::errors::{BResult, KvStoreError};
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncBufReadExt, BufStream};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
-use tracing::log::{info,debug}; 
-use tracing::span;  
-use tracing::Level; 
-use crate::errors::{BResult, KvStoreError};
+use tracing::log::{debug, info};
+use tracing::span;
+use tracing::Level;
 
 use crate::kv::KeyValue;
 
@@ -20,7 +19,6 @@ pub struct KvStore {
 }
 
 impl KvStore {
-    
     pub async fn new(filename: &str) -> BResult<Self> {
         let file = OpenOptions::new()
             .read(true)
@@ -54,7 +52,7 @@ impl KvStore {
 
         let mut buffer = vec![];
         let _y = self.log_file.read_until(b'\n', &mut buffer).await;
-
+        info!("buffer: {:?}", buffer); 
         let KeyValue { key: _, value }: KeyValue = serde_json::from_slice(&buffer).unwrap();
         Ok(value)
     }
@@ -64,29 +62,28 @@ impl KvStore {
         let mut index = DashMap::new();
         let mut buffer = "".to_string();
         let mut offset = 0;
-        let mut line_count = 0; 
+        let mut line_count = 0;
         info!("Entering file loop");
         // Iterate over the log file line by line
-        let loop_span = span!(Level::INFO, "entering loop span");
+        let _loop_span = span!(Level::INFO, "entering loop span");
         while let Ok(bytes_read) = log_file.read_line(&mut buffer).await {
-            info!("line number: {} bytes read: {}", line_count, bytes_read); 
+            info!("line number: {} bytes read: {}", line_count, bytes_read);
             if bytes_read == 0 {
                 debug!("**breaked the program**");
                 break;
             }
-            if buffer == r#"\n"# || (buffer.len() == 1){ 
+            if buffer == r#"\n"# || (buffer.len() == 1) {
                 debug!(" New Line found");
-                buffer.clear(); 
-                continue; 
+                buffer.clear();
+                continue;
             }
             let data_to_append = check_line_for_operation(&mut buffer).await?;
 
-            let _res =
-                trim_header_and_insert(&mut index, offset as u64, &data_to_append, &buffer)
+            let _res = trim_header_and_insert(&mut index, offset as u64, &data_to_append, &buffer)
                 .await
                 .unwrap();
             offset += bytes_read;
-            line_count += 1; 
+            line_count += 1;
             buffer.clear();
         }
 
@@ -184,7 +181,6 @@ pub async fn trim_header_and_insert(
         }
     }
     return Err(KvStoreError::InvalidCommand);
-
 }
 
 #[allow(private_interfaces)]
@@ -218,12 +214,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_ky_store() {
-        let subs = tracing_subscriber::fmt::Subscriber::default(); 
+        let _subs = tracing_subscriber::fmt::Subscriber::default();
         let mut kv = KvStore::new("kvstore_2.log").await.unwrap();
         println!("Data {:#?}", kv.index);
         let val = kv.get("key3").await.unwrap();
         // let val2 = kv.get("tea").await;
-        assert_eq!(val, vec![38,34,101]);
+        assert_eq!(val, vec![38, 34, 101]);
         // assert_eq!(val2.is_err(), true);
     }
 }
