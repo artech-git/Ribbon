@@ -70,7 +70,6 @@ pub async fn process_incoming_inputs(
             //     return Poll::Ready(());
             // }
             // Poll::Pending
-
             Poll::Ready(mut_term_rx.has_changed().unwrap_or(false))
         });
 

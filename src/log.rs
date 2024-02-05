@@ -52,8 +52,7 @@ impl KvStore {
 
         let mut buffer = vec![];
         let _y = self.log_file.read_until(b'\n', &mut buffer).await;
-        info!("buffer: {:?}", buffer); 
-        let KeyValue { key: _, value }: KeyValue = serde_json::from_slice(&buffer).unwrap();
+        let KeyValue { key , value }: KeyValue = serde_json::from_slice(&buffer).unwrap();
         Ok(value)
     }
 
