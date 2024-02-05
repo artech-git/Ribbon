@@ -3,7 +3,9 @@ use std::{io::Write, str::from_utf8};
 use crate::inputs::InputData;
 use anyhow::Error;
 
+
 use log::KvStore;
+
 use tokio::sync::watch::{Receiver, Sender};
 
 mod errors;
@@ -34,8 +36,7 @@ pub async fn process_terminal_input(tx: Sender<InputData>) {
             }
 
             if let InputData::ClearTerm = data {
-                // std::io::stdout().lock().write("".as_bytes()).unwrap();
-                clearscreen::clear();
+                let _ = clearscreen::clear();
                 continue;
             }
 
@@ -49,7 +50,6 @@ pub async fn process_terminal_input(tx: Sender<InputData>) {
             }
         }
         std::io::stdout().flush().unwrap();
-        // println!("");
     }
 }
 
@@ -71,18 +71,18 @@ pub async fn process_incoming_inputs(mut store: KvStore, mut rx: Receiver<InputD
                         println!(" value: {:?}", from_utf8(&u).unwrap());
                     }
                 }
-                InputData::insert(field) => {
+                InputData::Insert(field) => {
                     let k = field.key.clone();
                     let v = field.value.as_bytes().to_vec();
                     let _t = store.set(k, v).await;
                     println!(" Insert succes");
                 }
-                InputData::remove(field) => {
+                InputData::Remove(field) => {
                     let k = field.key.clone();
                     let _val = store.remove(&k).await.unwrap();
                     println!(" Removed key: {k}");
                 }
-                InputData::update(field) => {
+                InputData::Update(field) => {
                     let k = field.key.clone();
                     let v = field.updated_value.as_bytes().to_vec();
                     let _t = store.set(k, v).await.unwrap();
@@ -98,22 +98,59 @@ pub async fn process_incoming_inputs(mut store: KvStore, mut rx: Receiver<InputD
     }
 }
 
+
+use tracing::{span, Level};
+
 #[tokio::main]
 async fn main() {
     // Create message parsers
     let (tx, rx) = tokio::sync::watch::channel(InputData::Invalid);
 
     let task1 = tokio::task::spawn(async move {
+        let event = 
         process_terminal_input(tx).await;
     });
 
     let task2 = tokio::task::spawn(async move {
+
+        let subs = tracing_subscriber::fmt::Subscriber::builder()
+            .with_writer(std::io::stdout)
+            .with_max_level(tracing::Level::TRACE)
+            .init(); 
+
+        let mut my_span = span!(Level::INFO, "Key value store span");
+        my_span.enter();  
         let store = KvStore::new("kvstore.log").await.unwrap();
+        // my_span.exit(); 
+ 
         process_incoming_inputs(store, rx).await;
     });
+
+    // let task3 = tokio::task::spawn(async move { 
+    //     let route = Router::new()
+    //         .route("/set", insert_key)
+    //         .route("/get" , update_key);
+
+    //     route
+    // });
 
     let _ = task2.await;
     let _ = task1.await;
 }
 
-// async fn process_output(mut rx: Receiver<String>, )
+// async fn build_server() -> Router {
+//     let route = Router::new()
+//         .route("/set", insert_key)
+//         .route("/get" , update_key);
+
+//     route
+// }
+
+// async fn insert_key(
+//     mut Json(val): axum::Json<HashMap<String, String>>, 
+//     mut req: Request<Body>
+// ) -> Impl IntoResponse { 
+
+
+
+// }

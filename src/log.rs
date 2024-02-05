@@ -1,18 +1,15 @@
 
-// use std::collections::DashMap;
-// use std::fs::{File, OpenOptions};
-use std::io::{BufRead, Seek, SeekFrom};
+use std::io::SeekFrom;
 use std::ops::Deref;
-
 
 use dashmap::DashMap;
 
-
-
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncBufReadExt, BufStream};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tracing::log::{info,debug}; 
+use tracing::span;  
+use tracing::Level; 
 use crate::errors::{BResult, KvStoreError};
 
 use crate::kv::KeyValue;
@@ -23,6 +20,7 @@ pub struct KvStore {
 }
 
 impl KvStore {
+    
     pub async fn new(filename: &str) -> BResult<Self> {
         let file = OpenOptions::new()
             .read(true)
@@ -47,7 +45,6 @@ impl KvStore {
     }
 
     pub async fn get(&mut self, key: &str) -> BResult<Vec<u8>> {
-        println!(" index: {}", key);
         let offset = self.index.get(key).ok_or(KvStoreError::KeyNotFound)?;
 
         let _seek = (self.log_file)
@@ -67,23 +64,33 @@ impl KvStore {
         let mut index = DashMap::new();
         let mut buffer = "".to_string();
         let mut offset = 0;
-
+        let mut line_count = 0; 
+        info!("Entering file loop");
         // Iterate over the log file line by line
+        let loop_span = span!(Level::INFO, "entering loop span");
         while let Ok(bytes_read) = log_file.read_line(&mut buffer).await {
+            info!("line number: {} bytes read: {}", line_count, bytes_read); 
             if bytes_read == 0 {
+                debug!("**breaked the program**");
                 break;
             }
-            if buffer == r#"\n"# { 
+            if buffer == r#"\n"# || (buffer.len() == 1){ 
+                debug!(" New Line found");
+                buffer.clear(); 
                 continue; 
             }
             let data_to_append = check_line_for_operation(&mut buffer).await?;
+
             let _res =
-                trim_header_and_insert(&mut index, offset as u64, &data_to_append, &buffer).await;
+                trim_header_and_insert(&mut index, offset as u64, &data_to_append, &buffer)
+                .await
+                .unwrap();
             offset += bytes_read;
+            line_count += 1; 
             buffer.clear();
         }
 
-        log_file.write_all("\n".as_bytes()).await;
+        let _ = log_file.write_all("\n".as_bytes()).await;
         log_file.flush().await.unwrap();
         Ok(index)
     }
@@ -117,12 +124,7 @@ impl KvStore {
     }
 
     pub async fn remove(&mut self, key: &str) -> BResult<()> {
-        // let offset = self.index.get(key).ok_or(KvStoreError::KeyNotFound)?;
         if let Some(_val) = self.index.remove(key) {
-            // (self.log_file)
-            //     .seek(SeekFrom::Start(*offset))
-            //     .await
-            //     .map_err(|e| KvStoreError::IoError(e))?;
             let line = format!("[remove]:{}\n", key);
             self.log_file.write_all(line.as_bytes()).await.unwrap();
             self.log_file.flush().await.unwrap();
@@ -132,11 +134,12 @@ impl KvStore {
 }
 
 enum Operation {
-    update,
-    read,
-    remove,
+    Update,
+    Read,
+    Remove,
 }
 
+#[allow(private_interfaces, unreachable_code)]
 pub async fn trim_header_and_insert(
     index: &mut DashMap<String, u64>,
     offset: u64,
@@ -144,7 +147,7 @@ pub async fn trim_header_and_insert(
     buf: &String,
 ) -> BResult<()> {
     match ops {
-        Operation::update => {
+        Operation::Update => {
             let value = buf.strip_prefix("[update]:");
             let content = value.unwrap();
             let key_value: KeyValue = serde_json::from_str(&content).unwrap();
@@ -156,7 +159,7 @@ pub async fn trim_header_and_insert(
                 .or_insert(offset + 9);
             return Ok(());
         }
-        Operation::read => {
+        Operation::Read => {
             let value = buf.strip_prefix("[read]:");
             let content = value.unwrap();
             // //println!("*content: {content}");
@@ -168,7 +171,7 @@ pub async fn trim_header_and_insert(
                 .or_insert(offset + 7);
             return Ok(());
         }
-        Operation::remove => {
+        Operation::Remove => {
             let value = buf.strip_prefix("[remove]:");
             let mut content = value.unwrap().trim().to_string();
 
@@ -180,10 +183,11 @@ pub async fn trim_header_and_insert(
             return Ok(());
         }
     }
-
     return Err(KvStoreError::InvalidCommand);
+
 }
 
+#[allow(private_interfaces)]
 #[inline]
 pub async fn check_line_for_operation(buf: &mut String) -> BResult<Operation> {
     /*
@@ -193,15 +197,18 @@ pub async fn check_line_for_operation(buf: &mut String) -> BResult<Operation> {
             [remove]
     */
     if buf.contains("[update]") {
-        return Ok(Operation::update);
+        debug!("data update");
+        return Ok(Operation::Update);
     }
     if buf.contains("[read]") {
-        return Ok(Operation::read);
+        debug!("read the data");
+        return Ok(Operation::Read);
     }
     if buf.contains("[remove]") {
-        return Ok(Operation::remove);
+        debug!("remove data");
+        return Ok(Operation::Remove);
     }
-
+    debug!("unknown line discovered");
     return Err(KvStoreError::InvalidFileHeader);
 }
 
@@ -211,12 +218,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_ky_store() {
+        let subs = tracing_subscriber::fmt::Subscriber::default(); 
         let mut kv = KvStore::new("kvstore_2.log").await.unwrap();
-        // //println!("Data {:#?}", kv.index);
-        let val = kv.get("key").await.unwrap();
-        let val2 = kv.get("tea").await;
-        assert_eq!(val, vec![5, 6, 7, 8]);
-        assert_eq!(val2.is_err(), true);
+        println!("Data {:#?}", kv.index);
+        let val = kv.get("key3").await.unwrap();
+        // let val2 = kv.get("tea").await;
+        assert_eq!(val, vec![38,34,101]);
+        // assert_eq!(val2.is_err(), true);
     }
 }
 

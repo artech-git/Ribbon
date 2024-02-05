@@ -2,9 +2,9 @@ use derived_deref::Deref;
 
 #[derive(Clone)]
 pub enum InputData {
-    insert(InsertData),
-    remove(RemoveData),
-    update(UpdateData),
+    Insert(InsertData),
+    Remove(RemoveData),
+    Update(UpdateData),
     ReadInput(String),
     Invalid,
     ClearTerm,
@@ -75,13 +75,13 @@ impl std::convert::From<String> for InputData {
             return Self::ReadInput(val);
         }
         if val.contains("insert") {
-            return Self::insert(InsertData::from(val));
+            return Self::Insert(InsertData::from(val));
         }
         if val.contains("remove") {
-            return Self::remove(RemoveData::from(val));
+            return Self::Remove(RemoveData::from(val));
         }
         if val.contains("update") {
-            return Self::update(UpdateData::from(val));
+            return Self::Update(UpdateData::from(val));
         }
         if val.contains("clear") {
             return Self::ClearTerm;
