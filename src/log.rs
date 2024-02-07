@@ -1,9 +1,13 @@
 use std::io::SeekFrom;
 use std::ops::Deref;
+use std::str::from_utf8;
+use std::sync::Arc;
 
 use dashmap::DashMap;
+use tokio::sync::Mutex;
 
-use crate::errors::{BResult, KvStoreError};
+use crate::errors::{BackendResult, KvStoreError};
+use crate::inputs::InputData;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncBufReadExt, BufStream};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
@@ -18,15 +22,90 @@ pub struct KvStore {
     pub index: DashMap<String, u64>,
 }
 
+#[derive(Clone)]
+pub struct KvStoreShare {
+    inner: Arc<Mutex<KvStore>>,
+}
+
+impl KvStoreShare {
+    pub fn new(kv: KvStore) -> KvStoreShare {
+        Self {
+            inner: Arc::new(Mutex::new(kv)),
+        }
+    }
+
+    pub async fn get(&self, key: &str) -> BackendResult<Vec<u8>> {
+        let mut locked_data = self.inner.lock().await;
+
+        locked_data.get(key).await
+    }
+
+    pub async fn remove(&self, key: &str) -> BackendResult<()> {
+        let mut locked_data = self.inner.lock().await;
+
+        locked_data.remove(key).await
+    }
+
+    pub async fn set(&self, key: String, value: Vec<u8>) -> BackendResult<()> {
+        let mut locked_data = self.inner.lock().await;
+
+        locked_data.set(key, value).await
+    }
+
+    pub async fn set_data(&self, input_data: InputData) -> BackendResult<()> {
+        KvStoreShare::accept_terminal_input(self, input_data).await
+    }
+
+    async fn accept_terminal_input(store: &Self, data: InputData) -> BackendResult<()> {
+        match data {
+            InputData::ReadInput(key) => {
+                let new_key = key.strip_prefix("read ").unwrap().trim();
+                let i = store.get(new_key).await;
+                if let Ok(u) = i {
+                    println!(" value: {:?}", from_utf8(&u).unwrap());
+                    Ok(())
+                } else {
+                    Err(KvStoreError::InvalidFileHeader)
+                }
+            }
+            InputData::Insert(field) => {
+                let k = field.key.clone();
+                let v = field.value.as_bytes().to_vec();
+                let _t = store.set(k, v).await;
+                println!(" Insert succes");
+                _t
+            }
+            InputData::Remove(field) => {
+                let k = field.key.clone();
+                let _val = store.remove(&k).await;
+                println!(" Removed key: {k}");
+                _val
+            }
+            InputData::Update(field) => {
+                let k = field.key.clone();
+                let v = field.updated_value.as_bytes().to_vec();
+                let _t = store.set(k, v).await;
+                println!(" Updated key: {}", field.key);
+                _t
+            }
+            _ => {
+                println!(" Invalid buffer read");
+                // continue;
+                Err(KvStoreError::InvalidCommand)
+            }
+        }
+    }
+}
+
 impl KvStore {
-    pub async fn new(filename: &str) -> BResult<Self> {
+    pub async fn new(filename: &str) -> BackendResult<Self> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .open(filename)
             .await
-            .map_err(|e| KvStoreError::IoError(e))?;
+            .map_err(KvStoreError::IoError)?;
 
         let (index, log_file) = if file.metadata().await.unwrap().len() > 0 {
             // Load existing index from the log
@@ -37,26 +116,26 @@ impl KvStore {
         };
 
         Ok(Self {
-            log_file: log_file,
-            index: index,
+            log_file,
+            index,
         })
     }
 
-    pub async fn get(&mut self, key: &str) -> BResult<Vec<u8>> {
+    pub async fn get(&mut self, key: &str) -> BackendResult<Vec<u8>> {
         let offset = self.index.get(key).ok_or(KvStoreError::KeyNotFound)?;
 
         let _seek = (self.log_file)
             .seek(SeekFrom::Start(*offset.deref()))
             .await
-            .map_err(|e| KvStoreError::IoError(e))?;
+            .map_err(KvStoreError::IoError)?;
 
         let mut buffer = vec![];
         let _y = self.log_file.read_until(b'\n', &mut buffer).await;
-        let KeyValue { key , value }: KeyValue = serde_json::from_slice(&buffer).unwrap();
+        let KeyValue { key: _, value }: KeyValue = serde_json::from_slice(&buffer).unwrap();
         Ok(value)
     }
 
-    pub async fn load_index(log_file: &mut BufStream<File>) -> BResult<DashMap<String, u64>> {
+    pub async fn load_index(log_file: &mut BufStream<File>) -> BackendResult<DashMap<String, u64>> {
         // ... (Read and deserialize index entries)
         let mut index = DashMap::new();
         let mut buffer = "".to_string();
@@ -78,7 +157,7 @@ impl KvStore {
             }
             let data_to_append = check_line_for_operation(&mut buffer).await?;
 
-            let _res = trim_header_and_insert(&mut index, offset as u64, &data_to_append, &buffer)
+            trim_header_and_insert(&mut index, offset as u64, &data_to_append, &buffer)
                 .await
                 .unwrap();
             offset += bytes_read;
@@ -91,7 +170,7 @@ impl KvStore {
         Ok(index)
     }
 
-    pub async fn set(&mut self, key: String, value: Vec<u8>) -> BResult<()> {
+    pub async fn set(&mut self, key: String, value: Vec<u8>) -> BackendResult<()> {
         let serialized = serde_json::to_string(&KeyValue {
             key: key.clone(),
             value,
@@ -102,10 +181,10 @@ impl KvStore {
             .log_file
             .stream_position()
             .await
-            .map_err(|e| KvStoreError::IoError(e))?;
+            .map_err(KvStoreError::IoError)?;
         let line = format!("[read]:{}\n", serialized);
         self.log_file
-            .write_all(&line.as_bytes())
+            .write_all(line.as_bytes())
             .await
             .map_err(|_e| KvStoreError::InvalidCommand)?;
 
@@ -119,7 +198,7 @@ impl KvStore {
         Ok(())
     }
 
-    pub async fn remove(&mut self, key: &str) -> BResult<()> {
+    pub async fn remove(&mut self, key: &str) -> BackendResult<()> {
         if let Some(_val) = self.index.remove(key) {
             let line = format!("[remove]:{}\n", key);
             self.log_file.write_all(line.as_bytes()).await.unwrap();
@@ -141,12 +220,12 @@ pub async fn trim_header_and_insert(
     offset: u64,
     ops: &Operation,
     buf: &String,
-) -> BResult<()> {
+) -> BackendResult<()> {
     match ops {
         Operation::Update => {
             let value = buf.strip_prefix("[update]:");
             let content = value.unwrap();
-            let key_value: KeyValue = serde_json::from_str(&content).unwrap();
+            let key_value: KeyValue = serde_json::from_str(content).unwrap();
             //println!("*update: {content}");
 
             let _y = index
@@ -179,12 +258,12 @@ pub async fn trim_header_and_insert(
             return Ok(());
         }
     }
-    return Err(KvStoreError::InvalidCommand);
+    Err(KvStoreError::InvalidCommand)
 }
 
 #[allow(private_interfaces)]
 #[inline]
-pub async fn check_line_for_operation(buf: &mut String) -> BResult<Operation> {
+pub async fn check_line_for_operation(buf: &mut String) -> BackendResult<Operation> {
     /*
         ops:
             [Update]
@@ -204,7 +283,7 @@ pub async fn check_line_for_operation(buf: &mut String) -> BResult<Operation> {
         return Ok(Operation::Remove);
     }
     debug!("unknown line discovered");
-    return Err(KvStoreError::InvalidFileHeader);
+    Err(KvStoreError::InvalidFileHeader)
 }
 
 #[cfg(test)]

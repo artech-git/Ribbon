@@ -15,4 +15,4 @@ pub enum KvStoreError {
     InvalidFileHeader,
 }
 
-pub type BResult<T> = std::result::Result<T, KvStoreError>;
+pub type BackendResult<T> = std::result::Result<T, KvStoreError>;

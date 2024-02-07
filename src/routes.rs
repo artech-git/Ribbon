@@ -1,36 +1,38 @@
 use std::sync::Arc;
 
-use axum::{
-    response::IntoResponse,
-    routing::get,
-    Extension, Router,
+use axum::{body::Body, response::IntoResponse, routing::get, Extension, Router};
+use http::Response;
+
+use crate::{
+    kv::{Key, KeyValue},
+    log::KvStoreShare,
 };
-use tokio::sync::watch::{Sender};
 
-use crate::{kv::KeyValue};
+type Handle = KvStoreShare;
 
-type Handle = Arc<Sender<KeyValue>>;
-
-pub async fn build_server(ext: Sender<KeyValue>) -> Router {
-    let route = Router::new()
+pub async fn build_server(ext: KvStoreShare) -> Router {
+    Router::new()
         .route("/set", get(update_value))
-        .layer(Extension(Arc::new(ext)));
-
-    route
+        .route("/get", get(get_value))
+        .layer(Extension(ext))
 }
 
 pub async fn update_value(Extension(handle): Extension<Handle>, kv: KeyValue) -> impl IntoResponse {
     if kv.is_invalid() {
         return "Invalid content";
     }
-    handle.send(kv).unwrap();
-    return "Accpeted";
+    handle.set(kv.key, kv.value).await;
+    "Accpeted"
 }
 
+pub async fn get_value(Extension(handle): Extension<Handle>, kv: Key) -> impl IntoResponse {
+    let val = handle.get(&kv.key).await;
+    let mut response = Response::new(Body::empty());
 
-// pub async fn obtain_value(
-//     Extension(handle): Extension<Handle>,
-//     key: Request<String>
-// ) -> impl IntoResponse {
-//     let (header, body) = key.into_parts();
-// }
+    if val.is_ok() {
+        let body_mut = response.body_mut();
+        *body_mut = Body::from(val.unwrap());
+    }
+
+    response
+}

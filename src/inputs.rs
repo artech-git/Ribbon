@@ -88,6 +88,6 @@ impl std::convert::From<String> for InputData {
         if val.contains("clear") {
             return Self::ClearTerm;
         }
-        return Self::NewLine;
+        Self::NewLine
     }
 }
