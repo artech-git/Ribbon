@@ -1,0 +1,90 @@
+## Ribbon 🎗 - A Reloadable Key-Value Store in Rust
+
+Ribbon is a high-performance key-value store written in Rust, focused on ease of use and efficient data management. It offers seamless reloading capabilities, allowing you to update data without restarting the application.
+
+**Features:**
+
+* **Fast and efficient:** Leverages Rust's memory management and data structures for fast performance.
+* **Hot reloading:** Update stored data without downtime or application restarts.
+* **Simple API:** Provides an intuitive API for interacting with keys and values.
+* **Cross-platform compatibility:** Runs on major operating systems without any platform-specific dependencies.
+
+**Getting Started:**
+
+```rust
+
+// Create a new store
+let mut store = KVStore::new("data.bin");
+
+// Set a key-value pair
+store.set("name", "Alice");
+
+// Get a value
+let value = store.get("name");
+
+// Reload data from disk
+store.reload();
+
+// Check if a key exists
+let exists = store.exists("age");
+
+// Delete a key
+store.delete("name");
+```
+
+## **API Documentation:**
+
+**1. Copy a single key-value pair:**
+
+```
+POST /api/set
+{
+  "key": "string",
+  "value": Vec<u8> (optional, defaults to source_key)
+}
+```
+
+* **Parameters:**
+    * `key`: Key of the value to copy.
+    * `value`: Optional key for the copied value (defaults to source_key).
+* **Return:**
+    * `200 OK`: Copy successful, response contains copied value.
+    * `404 Not Found`: Source key or store not found.
+
+**2. Copy all key-value pairs from one store to another:**
+
+```
+POST /api/get
+{
+  "key": "string"
+}
+```
+
+* **Parameters:**
+    * `key`: key data to work with.
+* **Return:**
+    * `200 OK`: Value not discovered.
+    * `404 Not Found`: Key not found.
+
+**Additional Notes:**
+
+* All copy operations preserve data types and metadata (if supported).
+* Consider adding endpoints for copying specific data types or ranges of keys.
+* Implement appropriate error handling and validation for different scenarios.
+* This is a basic example, adapt it to fit your specific use case and API design.
+
+
+## **Terminal Usage:**
+
+Ribbon can also be used as a command-line tool:
+
+```
+usage: ribbon > command
+
+Available commands:
+  read   {key}             Get the value for a key
+  insert {key} {value}     Set a key-value pair
+  remove {key}             Delete a key
+  list    List all key-value pairs
+```
+
